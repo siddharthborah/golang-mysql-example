@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/google/uuid"
 )
 
 type Event struct {
@@ -18,7 +19,7 @@ type Event struct {
 }
 
 func main() {
-	http.HandleFunc("/events", getEventsHandler)
+	http.HandleFunc("/events", eventsHandler)
 	http.HandleFunc("/events/", getEventHandler)
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
@@ -57,6 +58,17 @@ func sendResponse(w http.ResponseWriter, statusCode int, data interface{}) {
 
 	// Write the JSON response
 	w.Write(jsonData)
+}
+
+func eventsHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		getEventsHandler(w, r)
+	case http.MethodPost:
+		createEventHandler(w, r)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
 }
 
 func getEventsHandler(w http.ResponseWriter, r *http.Request) {
@@ -134,4 +146,35 @@ func getEventHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Send the event response
 	sendResponse(w, http.StatusOK, event)
+}
+
+func createEventHandler(w http.ResponseWriter, r *http.Request) {
+	// Parse the request body into an Event struct
+	var event Event
+	err := json.NewDecoder(r.Body).Decode(&event)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Generate a new UUID for the event ID
+	event.ID = uuid.New().String()
+
+	db, err := getDBConnection()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer db.Close()
+
+	// Insert the new event into the events table
+	_, err = db.Exec("INSERT INTO events (id, name, description, event_date) VALUES (?, ?, ?, ?)",
+		event.ID, event.Name, event.Description, event.EventDate)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Send the success response
+	sendResponse(w, http.StatusCreated, event)
 }
